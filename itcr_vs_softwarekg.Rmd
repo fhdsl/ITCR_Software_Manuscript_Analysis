@@ -5,6 +5,14 @@ date: "3/15/2023"
 output: html_document
 ---
 
+SoftwareKG-PMC is a database of text-mined software mentions published by Schindler et al 2022(Krüger and Schindler 2020). In principle, this resource enables direct identification and analysis of the usage of ITCR tools in published literature present on PubMedCentral Open Access Subset as of January 2021. Access to this data requires setting up the database locally, as described by the developers at https://urldefense.com/v3/__https://github.com/f-krueger/SoftwareKG-PMC-Analysis__;!!GuAItXPztq0!hBzPcpXZ3SCNtkVgVI9KgwxhTOgm6JY1gKzCzCFfer1uhtTUx-sWnQyzKdfDCT0yogPVN8-gs4KZy97R-JH4PN6VNw20GNQ$ . We downloaded the raw ntriple data from https://urldefense.com/v3/__https://zenodo.org/record/7400022__;!!GuAItXPztq0!hBzPcpXZ3SCNtkVgVI9KgwxhTOgm6JY1gKzCzCFfer1uhtTUx-sWnQyzKdfDCT0yogPVN8-gs4KZy97R-JH4PN6VRftmtmY$  and loaded these into a Virtuoso database using the tenforce/virtuoso docker image available at https://urldefense.com/v3/__https://hub.docker.com/r/tenforce/virtuoso/__;!!GuAItXPztq0!hBzPcpXZ3SCNtkVgVI9KgwxhTOgm6JY1gKzCzCFfer1uhtTUx-sWnQyzKdfDCT0yogPVN8-gs4KZy97R-JH4PN6V0PP1Kqo$ . We adjusted the virtuoso configuration file for a machine with 64Gb of RAM. After the database is instantiated, the docker container can be closed and resumed on demand.
+
+
+We queried the database instance from R using code adapted from the SofwareKG-PMC-Analysis code notebook. The SPARQL library version 1.16 was installed manually from the CRAN archive at https://urldefense.com/v3/__https://cran.r-project.org/src/contrib/Archive/SPARQL/__;!!GuAItXPztq0!hBzPcpXZ3SCNtkVgVI9KgwxhTOgm6JY1gKzCzCFfer1uhtTUx-sWnQyzKdfDCT0yogPVN8-gs4KZy97R-JH4PN6VyojsQgQ$  as the package is no longer maintained. We constructed a query function which returns all articles which mention a given keyword (i.e., software name) in a particular mention category (allusion, usage, creation, or deposition). This yielded 73095 article-level mentions of any type, corresponding to 60970 unique articles for 36 ITCR tool name keywords. 8 tools were not identified, possibly due to recency of release, complexity of the tool name, or gaps in the accuracy or completeness of SoftwareKG and/or PubMedCentral. We further note that results are contaminated to a varying degree by software name homonyms. This type of collision is a chief limitation of SoftwareKG-PMC, especially for tools with simple or generic names. The query was performed in a case-insensitive manner due to the tendency for authors to adjust the capitalization of software names, such as JBrowse vs Jbrowse. SoftwareKG-PMC does not reliably aggregate these variations.
+
+
+Krüger, Frank, and David Schindler. 2020. “A Literature Review on Methods for the Extraction of Usage Statements of Software and Data.” Computing in Science Engineering 22 (1): 26–38.
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
