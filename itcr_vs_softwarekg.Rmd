@@ -1,0 +1,194 @@
+---
+title: "ITCR in softwareKG"
+author: "John Chamberlin"
+date: "3/15/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(SPARQL)
+library(digest)
+#library(xtable)
+
+# softwareKG-PMC is set up in local virtuoso server with sparql endpoint:
+server = "https://urldefense.com/v3/__http://localhost:8890/sparql__;!!GuAItXPztq0!hBzPcpXZ3SCNtkVgVI9KgwxhTOgm6JY1gKzCzCFfer1uhtTUx-sWnQyzKdfDCT0yogPVN8-gs4KZy97R-JH4PN6VLsRqgCI$ "
+
+# fn from https://urldefense.com/v3/__https://github.com/f-krueger/SoftwareKG-PMC-Analysis/blob/main/SoftwareKG_PMC_Analyses.ipynb__;!!GuAItXPztq0!hBzPcpXZ3SCNtkVgVI9KgwxhTOgm6JY1gKzCzCFfer1uhtTUx-sWnQyzKdfDCT0yogPVN8-gs4KZy97R-JH4PN6VGRgoXaM$ 
+run_and_cache <- function(query, cache.name="", print.query=FALSE){
+    context = "
+        PREFIX schema: <https://urldefense.com/v3/__http://schema.org/__;!!GuAItXPztq0!hBzPcpXZ3SCNtkVgVI9KgwxhTOgm6JY1gKzCzCFfer1uhtTUx-sWnQyzKdfDCT0yogPVN8-gs4KZy97R-JH4PN6VNIdtLqA$ >
+        PREFIX nif: <https://urldefense.com/v3/__http://persistence.uni-leipzig.org/nlp2rdf/ontologies/nif-core*__;Iw!!GuAItXPztq0!hBzPcpXZ3SCNtkVgVI9KgwxhTOgm6JY1gKzCzCFfer1uhtTUx-sWnQyzKdfDCT0yogPVN8-gs4KZy97R-JH4PN6VPi2mSRA$ >
+        PREFIX skg: <https://urldefense.com/v3/__http://data.gesis.org/softwarekg/PMC/__;!!GuAItXPztq0!hBzPcpXZ3SCNtkVgVI9KgwxhTOgm6JY1gKzCzCFfer1uhtTUx-sWnQyzKdfDCT0yogPVN8-gs4KZy97R-JH4PN6Vl7JzK3A$ >
+        PREFIX skgv: <https://urldefense.com/v3/__http://data.gesis.org/softwarekg/vocab/__;!!GuAItXPztq0!hBzPcpXZ3SCNtkVgVI9KgwxhTOgm6JY1gKzCzCFfer1uhtTUx-sWnQyzKdfDCT0yogPVN8-gs4KZy97R-JH4PN6VIR2t_dk$ >
+        PREFIX dct: <https://urldefense.com/v3/__http://purl.org/dc/terms/__;!!GuAItXPztq0!hBzPcpXZ3SCNtkVgVI9KgwxhTOgm6JY1gKzCzCFfer1uhtTUx-sWnQyzKdfDCT0yogPVN8-gs4KZy97R-JH4PN6VZarWrtg$ >
+        PREFIX bibo: <https://urldefense.com/v3/__http://purl.org/ontology/bibo/__;!!GuAItXPztq0!hBzPcpXZ3SCNtkVgVI9KgwxhTOgm6JY1gKzCzCFfer1uhtTUx-sWnQyzKdfDCT0yogPVN8-gs4KZy97R-JH4PN6VAYwFGeM$ >
+    "
+    query = paste0(context, query)
+    h = digest(query)
+    fn = paste0(cache.name, '_', h, '.csv.bz2')
+    if (! file.exists(fn)){
+        cat(paste0("Cache not available, start query"))
+        if (print.query){
+            print(query)
+        }
+        tic("Query")
+        res = SPARQL(url = server, query)$results
+        write_csv(res, path = fn)
+        toc()
+    }
+    return(read_csv(fn, show_col_types = FALSE))
+}
+query="      
+SELECT 
+    ?sw 
+    ?name 
+    ?max_ratio
+FROM 
+    <https://urldefense.com/v3/__http://data.gesis.org/softwarekg2__;!!GuAItXPztq0!hBzPcpXZ3SCNtkVgVI9KgwxhTOgm6JY1gKzCzCFfer1uhtTUx-sWnQyzKdfDCT0yogPVN8-gs4KZy97R-JH4PN6V1xOUCCQ$ > 
+WHERE
+{
+    {
+        SELECT 
+            ?sw 
+            MAX(?ratio) AS ?max_ratio
+        FROM 
+            <https://urldefense.com/v3/__http://data.gesis.org/softwarekg2__;!!GuAItXPztq0!hBzPcpXZ3SCNtkVgVI9KgwxhTOgm6JY1gKzCzCFfer1uhtTUx-sWnQyzKdfDCT0yogPVN8-gs4KZy97R-JH4PN6V1xOUCCQ$ > 
+        WHERE
+        {
+            ?stmt a rdf:Statement ;
+                  rdf:subject ?sw ;
+                  rdf:predicate schema:name ;
+                  skgv:confidence ?ratio .
+        }
+        GROUP BY ?sw
+    }
+
+    ?stmt a rdf:Statement ;
+          rdf:subject ?sw ;
+          rdf:predicate schema:name ;
+          rdf:object ?name ;
+          skgv:confidence ?max_ratio .
+}
+ORDER BY ?sw"
+
+# extract all software names present in softwarekg-pmc
+software_names = run_and_cache(query, cache.name="software_names")
+head(software_names)
+```
+
+
+```{r tool_data}
+# itcr tools table with simplified names for querying against
+itcr_tools = data.table::fread("data/leek/ITCR_simple_names.tsv",h=T)
+head(itcr_tools %>% select(simple_name, tool_name))
+```
+
+```{r query_functions}
+# match software name key to softwarekg internal URI identifier
+get_uri = function(software_name){
+  software_name = tolower(software_name)
+  uri = as.character(software_names$sw[tolower(software_names$name) == software_name])
+  names(uri) = software_names$name[tolower(software_names$name) == software_name]
+  return(uri[!is.na(uri)])   # can return na values sometimes
+}
+
+# query function for extracting all mentions for a given tool name from softwarekg
+pmc_explorer = function(key = "STRetch"){
+  uris = get_uri(key) # convert key to URI
+  if(length(uris)==0){
+    return("software not found")
+  }
+  else{
+    pmc_query = sprintf("
+SELECT
+    count(DISTINCT ?mention) as ?num_abs_mention
+    ?software
+    ?mentionType
+    ?article
+    year(?date) as ?year
+  WHERE {
+    ?article schema:datePublished ?date ;
+            schema:mentions ?mention.
+    ?mention skgv:software ?software ;
+             skgv:softwareType ?softwareType;
+             skgv:mentionType ?mentionType
+      FILTER (?software in (
+    %s
+    ))
+  }", paste0(uris, collapse=",\n" ))
+  pmc_res = run_and_cache(pmc_query, cache.name = "tmp")
+  pmc_res = pmc_res %>% left_join(data.frame("name"=names(uris),"software"=uris)) %>%
+    mutate(article = gsub("<https://urldefense.com/v3/__http://data.gesis.org/softwarekg/PMC/article/*22,*22*22,article__;JSUl!!GuAItXPztq0!hBzPcpXZ3SCNtkVgVI9KgwxhTOgm6JY1gKzCzCFfer1uhtTUx-sWnQyzKdfDCT0yogPVN8-gs4KZy97R-JH4PN6V3uQY8XY$ )) %>%
+    mutate(article = gsub(">","",article)) %>%
+    mutate(mentionType = gsub("<https://urldefense.com/v3/__http://data.gesis.org/softwarekg/vocab/MentionType___;!!GuAItXPztq0!hBzPcpXZ3SCNtkVgVI9KgwxhTOgm6JY1gKzCzCFfer1uhtTUx-sWnQyzKdfDCT0yogPVN8-gs4KZy97R-JH4PN6V6b3iUsE$ ","",
+                              gsub(">","",mentionType)))
+  return(pmc_res %>% select(article,mentionType,name,year,num_abs_mention, software))
+  }
+}
+
+# total mention counter function
+mention_counter = function(key="bedtools"){
+  print(key)
+  software_key = tolower(key)
+  software_urls = (software_names %>% filter(tolower(name)==software_key))$sw
+  if(length(software_urls)==0){
+    return("software not found")
+  }
+  else{
+    my_result = run_and_cache(query=sprintf("
+  SELECT
+    count(DISTINCT ?mention) as ?num_abs_mention
+    ?software 
+    ?mentionType
+  WHERE {
+    ?article schema:mentions ?mention.
+    ?mention skgv:software ?software ;
+             skgv:softwareType ?softwareType;
+             skgv:mentionType ?mentionType
+  FILTER (?software in (
+    %s
+    ))
+  }", paste0(software_urls, collapse=",\n")))
+    
+  my_result = my_result %>% mutate_at("mentionType", str_replace, "<https://urldefense.com/v3/__http://data.gesis.org/softwarekg/vocab/MentionType___;!!GuAItXPztq0!hBzPcpXZ3SCNtkVgVI9KgwxhTOgm6JY1gKzCzCFfer1uhtTUx-sWnQyzKdfDCT0yogPVN8-gs4KZy97R-JH4PN6V6b3iUsE$ ", "") %>%
+   spread(mentionType, num_abs_mention)
+  colnames(my_result) = tolower(gsub(">","",colnames(my_result)))
+  my_result = my_result %>% left_join(software_names, by = c("software"="sw")) %>%
+           select(-software,-max_ratio)
+  my_result[is.na(my_result)] = 0
+  return(my_result)
+  }
+}
+```
+
+
+```{r articles, message=FALSE}
+itcr_articles = sapply(itcr_tools$simple_name, pmc_explorer)
+itcr_articles_bind = do.call(rbind, itcr_articles[itcr_articles != "software not found"])
+
+itcr_articles_bind = itcr_articles_bind %>% 
+  mutate(name_lower = tolower(name)) %>%
+  left_join(itcr_tools %>% select(simple_name) %>% mutate(name_lower = tolower(simple_name))) %>% select(-name_lower) %>% rename(name_in_reference = name, name_from_itcr_simplified = simple_name)
+
+sum(itcr_articles == "software not found")
+data.table::fwrite(itcr_articles_bind,file="itcr_softwarekg_articles.tsv",sep = "\t")
+
+```
+
+```{r total_mentions, results=FALSE}
+itcr_mentions = sapply(itcr_tools$simple_name, mention_counter)
+itcr_mentions = plyr::rbind.fill(itcr_mentions[itcr_mentions != "software not found"])
+
+itcr_mentions = itcr_mentions %>% 
+  mutate(name_lower = tolower(name)) %>%
+  left_join(itcr_tools %>% select(simple_name) %>% mutate(name_lower = tolower(simple_name))) %>% 
+  select(-name_lower) %>% rename(name_in_reference = name, name_from_itcr_simplified = simple_name)
+
+itcr_mentions[is.na(itcr_mentions)] = 0
+
+data.table::fwrite(itcr_mentions,file="itcr_vs_softareKG.tsv")
+
+```
